@@ -11,11 +11,95 @@ import path from 'path';
 import mongoose from 'mongoose';
 import { ProjectData } from '../models/project.model.js';
 import { ProjectOrder } from '../models/ProjectOrder.model.js';
+import { UserSupplier } from '../models/userSupplier.model.js';
+import { UserTeammate } from '../models/userTeam.model.js';
+import { UserPdf } from '../models/userpdf.model.js';
 cloudinary.config({
   cloud_name: process.env.CLOUDNARY_NAME,
   api_key: process.env.CLOUDNARY_API,
   api_secret: process.env.CLOUDNARY_SECRET,
 });
+export const AdminLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const clientIP =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.ip ||
+      req.connection.remoteAddress;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email and password are required" });
+    }
+
+    // Rate Limiting by IP — max 4 attempts per 60s
+    const now = Date.now();
+    const attempts = loginAttempts[clientIP] || [];
+    const recentAttempts = attempts.filter((time) => now - time < 60 * 1000);
+
+    if (recentAttempts.length >= 4) {
+      return res
+        .status(429)
+        .json({ message: "Too many attempts. Try again after 60 seconds." });
+    }
+
+    loginAttempts[clientIP] = [...recentAttempts, now];
+
+    // Find user
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    // Check admin role
+    if (user.role !== "admin") {
+      return res.status(403).json({ message: "Access denied: Admins only" });
+    }
+
+    // Verify password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    // Update IP history (limit to 5 recent entries)
+    user.ipAddress.unshift({
+      latestIP: clientIP,
+      oldIP: user.ipAddress[0]?.latestIP || "",
+      loginDate: new Date(),
+    });
+    if (user.ipAddress.length > 5) user.ipAddress = user.ipAddress.slice(0, 5);
+
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Generate JWT
+    const token = jwt.sign(
+      { userId: user._id, role: user.role },
+      process.env.SECRET_TOKEN_KEY,
+      { expiresIn: "7d" }
+    );
+
+    // Set secure HTTP-only cookie for webpage login
+    res.cookie('token', token, {
+      httpOnly: true,  // Prevents client-side JS access
+      secure: process.env.NODE_ENV === 'production',  // HTTPS only in production
+      sameSite: 'strict',  // Helps prevent CSRF
+      maxAge: 7 * 24 * 60 * 60 * 1000  // 7 days in ms
+    });
+
+    return res.status(200).json({
+      message: "Login successful",
+      userId: user._id,
+      role: user.role,
+      // Optionally include token in response for API clients; remove if not needed
+      token,
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
 export const UploadProjectPdf = async (req, res) => {
   try {
     console.log('Request received:', {
@@ -943,3 +1027,320 @@ export const resetPassword = async (req, res) => {
 };
 
 
+
+export const deleteUser = async (req, res) => {
+  try {
+    const { userId, deleteId } = req.params;
+
+    if (!userId || !deleteId) {
+      return res.status(400).json({ message: "userId and deleteId are required" });
+    }
+
+    const adminUser = await User.findById(userId);
+    if (!adminUser) {
+      return res.status(404).json({ message: "Admin user not found" });
+    }
+
+    if (adminUser.role !== "admin") {
+      return res.status(403).json({ message: "Only admin is allowed" });
+    }
+
+    const deleted = await User.findByIdAndDelete(deleteId);
+    if (!deleted) {
+      return res.status(404).json({ message: "User to delete not found" });
+    }
+
+    return res.status(200).json({ message: "User deleted successfully" });
+
+  } catch (error) {
+    console.log("Delete User error", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const UpdateUser = async (req, res) => {
+  try {
+    const { userId, UpdateId } = req.params;
+    const { username, email, password } = req.body;
+
+    if (!userId || !UpdateId) {
+      return res.status(400).json({ message: "userId and updateId are required" });
+    }
+
+    const adminUser = await User.findById(userId);
+    if (!adminUser) {
+      return res.status(404).json({ message: "Admin user not found" });
+    }
+
+    if (adminUser.role !== "admin") {
+      return res.status(403).json({ message: "Only admin is allowed" });
+    }
+
+    // Prepare update object dynamically
+    const updateData = {};
+    if (username) updateData.username = username;
+    if (email) updateData.email = email;
+    if (password) {
+      const hashedPassword = await bcrypt.hash(password, 10); // 👈 secure hashing
+      updateData.password = hashedPassword;
+    }
+
+    const updated = await User.findByIdAndUpdate(UpdateId, updateData, { new: true });
+    if (!updated) {
+      return res.status(404).json({ message: "User to update not found" });
+    }
+
+    return res.status(200).json({ message: "User updated successfully", user: updated });
+
+  } catch (error) {
+    console.log("Update User error", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const fetchAllUserOrdersss = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    const admin = await User.findById(userId);
+    if (!admin) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (admin.role !== "admin") {
+      return res.status(403).json({ message: "Only admin allowed" });
+    }
+
+    // Fetch all data in parallel for better performance
+    const [findOrders, findProject, findUsers, findSuppliers] = await Promise.all([
+      ProjectOrder.find().populate("userId", "email").select("-data").limit(11),
+      ProjectData.countDocuments(),
+      User.countDocuments(),
+      UserSupplier.countDocuments()
+    ]);
+
+    return res.status(200).json({
+      message: "Order fetch successfully",
+      findOrders,
+      findProject,
+      findUsers,
+      findSuppliers,
+    });
+
+  } catch (error) {
+    console.log("fetchAllUserOrders error", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const DeleteOrders = async (req, res) => {
+  try {
+    const { userId, orderId } = req.params;
+
+    if (!userId || !orderId) {
+      return res.status(400).json({ message: "userId and orderId are required" });
+    }
+
+    const adminUser = await User.findById(userId);
+    if (!adminUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (adminUser.role !== "admin") {
+      return res.status(403).json({ message: "Only admin allowed" });
+    }
+
+    const deletedOrder = await ProjectOrder.findByIdAndDelete(orderId);
+    if (!deletedOrder) {
+      return res.status(404).json({ message: "Order not found or already deleted" });
+    }
+
+    return res.status(200).json({ message: "Order deleted successfully" });
+
+  } catch (error) {
+    console.log("Delete order error", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const fetchAllUserSupplier = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "userId is required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+    }
+
+    const suppliers = await UserSupplier.find().populate("userId", "email");
+
+    // ✅ Group by SupplierEmail
+    const groupedSuppliers = suppliers.reduce((acc, supplier) => {
+      const email = supplier.SupplierEmail;
+      if (!acc[email]) {
+        acc[email] = {
+          SupplierEmail: email,
+          suppliers: []
+        };
+      }
+      acc[email].suppliers.push(supplier);
+      return acc;
+    }, {});
+   const TotalOrders = await ProjectOrder.countDocuments()
+   const TotalUser = await User.countDocuments()
+   const TotalTeammates = await UserTeammate.countDocuments()
+    return res.status(200).json({
+      success: true,
+      message: "Suppliers fetched successfully",
+      suppliers: Object.values(groupedSuppliers),
+      TotalOrders,
+      TotalUser,
+      TotalTeammates
+    });
+
+  } catch (error) {
+    console.error("FetchAllUserSupplier error", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+
+export const deleteUserSupplier = async (req, res) => {
+  try {
+    const { userId, supplierId } = req.params;
+
+    if (!userId || !supplierId) {
+      return res.status(400).json({ message: "userId and supplierId are required" });
+    }
+
+    const findUser = await User.findById(userId);
+    if (!findUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (findUser.role !== "admin") {
+      return res.status(403).json({ message: "Only admin is allowed" });
+    }
+
+    const deleteSupplier = await UserSupplier.findByIdAndDelete(supplierId);
+    if (!deleteSupplier) {
+      return res.status(404).json({ message: "Supplier not found or already deleted" });
+    }
+
+    return res.status(200).json({ message: "Supplier deleted successfully" });
+
+  } catch (error) {
+    console.log("deleteUserSupplier error", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const fetchUserAllTeammates = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "userId is required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Access denied. Admin only." });
+    }
+
+    // Fetch all teammates
+    const teammates = await UserTeammate.find().populate("teammateId userId", "email");
+
+    // ✅ Group by userId
+    const grouped = teammates.reduce((acc, item) => {
+      const userKey = item.userId?._id || "unknown"; // Handle null userId
+      const userEmail = item.userId?.email || "N/A";
+
+      if (!acc[userKey]) {
+        acc[userKey] = {
+          userId: userKey,
+          email: userEmail,
+          teammates: []
+        };
+      }
+
+      if (item.teammateId) {
+        acc[userKey].teammates.push({
+          teammateId: item.teammateId._id,
+          email: item.teammateId.email
+        });
+      }
+
+      return acc;
+    }, {});
+    const TotalUsers = await User.countDocuments()
+    const TotalProject = await ProjectData.countDocuments()
+    const TotalOrders = await ProjectOrder.countDocuments()
+    return res.status(200).json({
+      success: true,
+      message: "Teammates fetched successfully",
+      data: Object.values(grouped),
+      TotalUsers,
+      TotalProject,
+      TotalOrders
+    });
+
+  } catch (error) {
+    console.log("fetchUserTeammate error", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const fetchUserPdfsss = async (req, res) => {
+  try {
+    const findPdf = await UserPdf.find().populate("userId", "email");
+
+    // Group by email
+    const grouped = findPdf.reduce((acc, item) => {
+      const email = item?.userId?.email || "unknown";
+
+      if (!acc[email]) {
+        acc[email] = [];
+      }
+
+      acc[email].push({
+        _id: item._id,
+        pdfUrl: item.pdfUrl,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      });
+
+      return acc;
+    }, {});
+
+    // Convert to array format
+    const result = Object.entries(grouped).map(([email, pdfs]) => ({
+      email,
+      pdfs
+    }));
+    const TotalUser = await User.countDocuments()
+    const TotalProjects = await ProjectData.countDocuments()
+    const TotalOrders = await ProjectOrder.countDocuments()
+
+    return res.status(200).json({ message: "PDFs fetched successfully", data: result ,TotalUser,TotalProjects,TotalOrders});
+
+  } catch (error) {
+    console.log("fetchUserPdf error", error);
+    return res.status(500).json({ message: "Internal server error", error });
+  }
+};

@@ -2,7 +2,8 @@ import mongoose, { Schema } from "mongoose";
 
 const userPdfSchema = new Schema({
   userId: {
-    type: String,
+    type: mongoose.Schema.ObjectId,
+    ref : "User",
     required: true,
   },
   pdfUrl: {

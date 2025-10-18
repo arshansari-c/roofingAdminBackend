@@ -22,7 +22,12 @@ export const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE'] }));
+app.use(cors({
+  origin: "http://localhost:5173",   // No trailing slash
+  methods: ["GET", "POST","DELETE","PUT"],
+  credentials: true
+}));
+
 app.use(fileUpload({ useTempFiles: true, tempFileDir: '/tmp/' }));
 app.use(cookieParser());
 

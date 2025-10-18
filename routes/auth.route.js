@@ -1,11 +1,12 @@
 import express from 'express'
-import { addTeamMemberEmail, fetchSelectedProjectData, fetchTeamEmails, fetchUploadOrder, fetchUploadProjectData, forgetPassword, login,  Profile, register, resetPassword, resetPasswordOtpVerify, sendPdfToTeamFromEmail, UpdateJobOrder, UpdateProfile,  updateUploadProjectPdf,  UploadProjectPdf } from '../controllers/auth.controller.js'
+import { addTeamMemberEmail, AdminLogin, DeleteOrders, deleteUser, deleteUserSupplier, fetchAllUserOrdersss, fetchAllUserSupplier, fetchSelectedProjectData, fetchTeamEmails, fetchUploadOrder, fetchUploadProjectData, fetchUserAllTeammates, fetchUserPdfsss, forgetPassword, login,  Profile, register, resetPassword, resetPasswordOtpVerify, sendPdfToTeamFromEmail, UpdateJobOrder, UpdateProfile,  updateUploadProjectPdf,  UpdateUser,  UploadProjectPdf } from '../controllers/auth.controller.js'
 import { CheckAuth } from '../middlewares/CheckAuth.js'
-import { AddSupplier, AddTeammate, EditSupplierDetails, fetchSupplierList, fetchTeammatesOrders, fetchTeammateTeams, fetchUserSupplier, fetchUserTeammate, SupplierDetails } from '../controllers/supplier.controller.js'
+import { AddSupplier, AddTeammate, EditSupplierDetails, fetchAllUserOrders, fetchAllUsers, fetchDataStatics, fetchSupplierList, fetchTeammatesOrders, fetchTeammateTeams, fetchUserSupplier, fetchUserTeammate, SupplierDetails } from '../controllers/supplier.controller.js'
 import { EditFreelancerDetails, fetchFreelancerList, fetchOtherFreelancerDetails, fetchOtherUserDetails, FreelancerDetails } from '../controllers/freelancer.controller.js'
 import { approveOrder, cancelOrder, ChangePassword, ConversetionChat, fetchChatUser, fetchclientDetails, fetchConversationChat, fetchOrders, fetchSelectedOrderDetails, fetchUserPdf, fetchUserSendOrderList, rejectOrder, SaveUserPdf, SendOrderToContractor } from '../controllers/conversation.controller.js'
 import { generatePdf, UpdateGerantePdfOrder } from '../controllers/Pdf.controller.js'
 import { generatePdfDownload } from '../controllers/download.controller.js'
+import { CheckAuth2 } from '../middlewares/CheckAuth2.js'
 
 export const AuthRouter = express.Router()
 
@@ -56,3 +57,15 @@ AuthRouter.get('/fetchuserteammate/:userId',fetchUserTeammate)
 AuthRouter.get('/fetchusersupplier/:userId',fetchUserSupplier)
 AuthRouter.get('/fetchtemmateorder/:userId',fetchTeammatesOrders)
 AuthRouter.get('/fetchsupplierandteammate/:userId',fetchTeammateTeams)
+AuthRouter.post('/adminlogin',AdminLogin)
+AuthRouter.get('/fetchstatics',CheckAuth2,fetchDataStatics)
+AuthRouter.get('/fetchalluserorders',CheckAuth2,fetchAllUserOrders)
+AuthRouter.get('/allusersfetch',fetchAllUsers)
+AuthRouter.delete('/deleteusers/:userId/:deleteId',deleteUser)
+AuthRouter.put('/updateusers/:userId/:UpdateId',UpdateUser)
+AuthRouter.get('/getalluserorders/:userId',fetchAllUserOrdersss,)
+AuthRouter.delete('/deleteorder/:userId/:orderId',DeleteOrders)
+AuthRouter.get('/fetchallsuppliers/:userId',fetchAllUserSupplier)
+AuthRouter.delete('/deletesupplier/:userId/:supplierId',deleteUserSupplier)
+AuthRouter.get('/fetchuserteammates/:userId',fetchUserAllTeammates)
+AuthRouter.get('/fetchuserpdfs/:userId',fetchUserPdfsss)

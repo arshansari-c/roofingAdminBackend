@@ -7,6 +7,8 @@ import bcrypt from 'bcryptjs';
 import { UserTeammate } from '../models/userTeam.model.js';
 
 import { ProjectOrder } from '../models/ProjectOrder.model.js';
+import { UserPdf } from '../models/userpdf.model.js';
+import { ProjectData } from '../models/project.model.js';
 
 cloudinary.config({
   cloud_name: process.env.CLOUDNARY_NAME,
@@ -471,6 +473,124 @@ export const fetchSupplierList = async (req, res) => {
   } catch (error) {
     console.error("fetchSupplierList error", error);
     return res.status(500).json({ message: "Internal server error", error: error.message });
+  }
+};
+export const fetchAllUsers = async (req, res) => {
+  try {
+    const usersWithCounts = await User.aggregate([
+      {
+        $lookup: {
+          from: "projectorders",      // collection name of ProjectOrder
+          localField: "_id",
+          foreignField: "userId",
+          as: "orders"
+        }
+      },
+      {
+        $lookup: {
+          from: "projectdatas",       // collection name of ProjectData
+          localField: "_id",
+          foreignField: "userId",
+          as: "projects"
+        }
+      },
+      {
+        $lookup: {
+          from: "usersuppliers",      // collection name of SupplierList
+          localField: "_id",
+          foreignField: "userId",
+          as: "suppliers"
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          username: 1,
+          email: 1,
+          orderCount: { $size: "$orders" },
+          projectCount: { $size: "$projects" },
+          supplierCount: { $size: "$suppliers" }
+        }
+      },
+      { $sort: { orderCount: -1 } }   // Optional leaderboard style
+    ]);
+
+    return res.status(200).json({
+      message: "Users fetched successfully",
+      users: usersWithCounts
+    });
+  } catch (error) {
+    console.log("fetchAllUsers error", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const fetchAllUserOrders = async (req, res) => {
+  try {
+    const userOrderCounts = await ProjectOrder.aggregate([
+      {
+        $group: {
+          _id: "$userId",
+          totalOrders: { $sum: 1 }
+        }
+      },
+      {
+        $lookup: {
+          from: "users",             // MongoDB collection name
+          localField: "_id",
+          foreignField: "_id",
+          as: "user"
+        }
+      },
+      { $unwind: "$user" },
+      {
+        $project: {
+          _id: 0,
+          userId: "$_id",
+          username: "$user.username",
+          email: "$user.email",
+          totalOrders: 1
+        }
+      },
+      { $sort: { totalOrders: -1 } },  // 🔥 Sort by highest orders first
+      // // Optional: Limit for leaderboard
+    ]);
+
+    return res.status(200).json({ message: "Leaderboard fetched successfully", userOrderCounts });
+  } catch (error) {
+    console.log("fetchAllUserOrders error", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const fetchDataStatics = async (req, res) => {
+  try {
+    const totalUser = await User.find().countDocuments()
+    const totalAdmin = await User.find({ role: "admin" }).countDocuments()
+    const orderPdf = await UserPdf.find().countDocuments() // you were using count, now using find for consistency
+    const totalSupplier = await UserSupplier.find().countDocuments()
+    const totalTeammate = await UserTeammate.find().countDocuments()
+    const totalProjects = await ProjectData.find().countDocuments()
+  const totalOrders = await ProjectOrder.find().select('-data')
+  .populate("userId", "email username")
+  .sort({ createdAt: -1 }) // latest first
+  .limit(3);
+
+    res.status(200).json({
+      message: "Statistics data fetched successfully",
+      data: {
+        totalUser,
+        totalAdmin,
+        orderPdf,
+        totalSupplier,
+        totalTeammate,
+        totalProjects,
+        totalOrders,
+      },
+    });
+  } catch (error) {
+    console.log("fetchData failed error", error);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
