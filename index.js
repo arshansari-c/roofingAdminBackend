@@ -23,7 +23,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(cors({
-  origin: "http://localhost:5173",   // No trailing slash
+  origin: "https://roofingadminfrontend.onrender.com",   // No trailing slash
   methods: ["GET", "POST","DELETE","PUT"],
   credentials: true
 }));
