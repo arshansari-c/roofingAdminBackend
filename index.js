@@ -23,10 +23,14 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(cors({
-  origin: "https://roofingfront-p9un.onrender.com",   // No trailing slash
-  methods: ["GET", "POST","DELETE","PUT"],
+  origin: [
+    "https://roofingfront-p9un.onrender.com",
+    "http://localhost:5173"
+  ],
+  methods: ["GET", "POST", "DELETE", "PUT"],
   credentials: true
 }));
+
 
 app.use(fileUpload({ useTempFiles: true, tempFileDir: '/tmp/' }));
 app.use(cookieParser());
